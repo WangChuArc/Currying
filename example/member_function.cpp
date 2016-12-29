@@ -28,6 +28,6 @@ int main()
 //output:
 //in bar   2  3  1  4
 //in main  20
-//in foo   2  3  1  4
+//in bar   2  3  1  4
 //in main  110
 
