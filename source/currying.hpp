@@ -156,7 +156,8 @@ namespace FPinCpp
     template<typename TFunc, typename = typename enable_if<is_member_function_pointer<TFunc>::value>::type>
     auto Currying(TFunc func)
     {
-        auto f = _makeFuncObj(func, **void());
+        void** ptr_of_ptr = nullptr;
+        auto f = _makeFuncObj(func, ptr_of_ptr);
         return Curried<decltype(f)>(move(f));
     }
 
