@@ -3,7 +3,6 @@
 #include<utility>
 #include<functional>
 
-
 namespace FPinCpp
 {
     using namespace std;
