@@ -19,6 +19,44 @@ namespace FPinCpp
         const _WildCard_ _;
 
         template<typename T>
+        struct NormalFunc {};
+
+#define storeCC(x) /* 存储一般函数的calling convention */ \
+        template<typename TR, typename ...TArgs>\
+        struct NormalFunc<TR x (TArgs...)> { typedef TR(type)(TArgs...); };
+
+        storeCC(__cdecl)
+        storeCC(__stdcall)
+        storeCC(__fastcall)
+        storeCC(__vectorcall)
+
+        template<typename T, typename U>
+        struct PtrorValue { typedef U type; };
+
+        template<typename T, typename U>
+        struct PtrorValue<T*, U> { typedef U* type; };
+
+        template<typename T, typename U>
+        struct handleMemberFunction {};
+
+#define makeHMF(x)\
+        template<typename TMarker, typename TR, typename TClass, typename ...TArgs>\
+        struct handleMemberFunction<TR(x/*<--*/ TClass::*)(TArgs...), TMarker>\
+        {\
+            typedef typename PtrorValue<TMarker, TClass>::type CT;\
+            typedef TR(x/*<--*/ *type)(CT, TArgs...);\
+            template<typename = enable_if<is_pointer<CT>::value>::type>  /* CT是指针类型 */\
+            static auto transMF(TR(TClass::*p)(TArgs...)) { return [p](CT cp, TArgs ...args)->TR { (x/*<--*/ cp->*p)(args); }; };\
+            template<typename SFINAE = void, typename = enable_if<!is_pointer<CT>::value>::type> /* CT不是指针类型 */\
+            static auto transMF(TR(TClass::*p)(TArgs...)) { return [p](CT&& cp, TArgs ...args)->TR { (x/*<--*/ cp.*p)(args); }; }\
+        };                                                                   
+
+        makeHMF(__cdecl)
+        makeHMF(__fastcall)
+        makeHMF(__stdcall)
+        makeHMF(__vectorcall)
+
+        template<typename T>
         struct ExtractFuncArgNum {};
 
         template<typename TR, typename ...TArgs>
@@ -27,8 +65,19 @@ namespace FPinCpp
         template<typename T>
         struct ExtractFuncType {};
 
-        template<typename TR, typename ...TArgs>
-        struct ExtractFuncType<function<TR(TArgs...)>> { typedef TR(type)(TArgs...); };
+#define makeEFT(x)\
+        template<typename TR, typename ...TArgs>                    \
+        struct ExtractFuncType<function<TR x/*<--*/ (TArgs...)>>    \
+        {                                                           \
+            typedef TR(x/*<--*/ type)(TArgs...);                    \
+            typedef tuple<TArgs...> tupleType;                      \
+            enum { argNum = sizeof...(TArgs) };                     \
+        };
+
+        makeEFT(__cdecl)
+        makeEFT(__stdcall)
+        makeEFT(__fastcall)
+        makeEFT(__vectorcall)
 
         template<typename>
         struct SizeofIndexSequence { enum { value = sizeof...(TI) }; };
@@ -109,69 +158,68 @@ namespace FPinCpp
     struct Curried;
 
     /**********************************************************************************************************************************/
-    // 构造curried对象首先需要构造std:function对象。对于一般函数，function对象与原函数参数列表相同,在currying函数中构造。
-    // 对于成员函数和functor、lambda表达式来说，function对象的参数列表，比原函数多了一个对象参数(与this指针作用类似)，在_makeFuncObj函数中构造。
-    //
-    // 对于成员函数，currying函数返回的curried对象(本质是functor)的第一个参数是成员所属类的对象指针，由使用者管理。因此参数比原函数多一个。
-    // 对于functor、lambda表达式，如果传入currying函数的是对象(值传递),则返回的curried对象会保存传入对象的副本(栈中)；如果传入currying函数的
-    //是指针，则返回的curried对象会保存传入的指针，其指向对象由使用者管理。此操作由currying函数完成，因此返回的curried对象参数数量不变。
-    // 最后的curried对象会保存的参数是值还是指针，实际上从调用_makeFuncObj函数时就决定了，因此由_makeFuncObj函数的第二个参数的参数类型来决定
-    //保存值还是指针。这个写法有点蠢，盖因函数模板没有偏特化，只能用函数重载来实现。
+    // todo:记得重新写注释
     /**********************************************************************************************************************************/
 
-    template<typename TPtr, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TPtr*)
+    /*template<typename TMarker, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
+    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TMarker*)
     {
         typedef TR(type)(TClass*, TArgs...);
         function<type> f = [func](TClass* pObj, TArgs ...args) { return (pObj->*func)(args...); };
         return move(f);
     }
 
-    template<typename TPtr, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TPtr*)
+    template<typename TMarker, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
+    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TMarker*)
     {
         typedef TR(type)(TClass*, TArgs...);
         function<type> f = [func](TClass* pObj, TArgs ...args) { return (pObj->*func)(args...); };
         return move(f);
     }
 
-    template<typename SFINAE = void, typename TPtr, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TPtr*)
+    template<typename SFINAE = void, typename TMarker, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
+    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TMarker*)
     {
         typedef TR(type)(TClass&&, TArgs...);
         function<type> f = [func](TClass&& pObj, TArgs ...args) { return (pObj.*func)(args...); };
         return move(f);
     }
 
-    template<typename SFINAE = void, typename TPtr, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TPtr*)
+    template<typename SFINAE = void, typename TMarker, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
+    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TMarker*)
     {
         typedef TR(type)(TClass&&, TArgs...);
         function<type> f = [func](TClass&& pObj, TArgs ...args) { return (pObj.*func)(args...); };
         return move(f);
-    }
+    }*/
 
     template<typename TFunc, typename = typename enable_if<is_function<typename remove_pointer<TFunc>::type>::value>::type>
-    auto Currying(TFunc func) -> Curried<function<typename remove_pointer<TFunc>::type>>
+    auto Currying(TFunc func)// -> Curried<function<typename NormalFunc<typename remove_pointer<TFunc>::type>::type>>
     {
-        typedef remove_pointer<TFunc>::type F;
+        typedef remove_pointer<TFunc>::type type;
+        typedef NormalFunc<type>::type F;
         function<F> f = func;
         return Curried<function<F>>(move(f));
     }
 
-    template<typename TFunc, typename = typename enable_if<is_member_function_pointer<TFunc>::value>::type>
+    template<typename TFunc, typename = typename enable_if<is_member_function_pointer<TFunc>::value>::type, typename = void>
     auto Currying(TFunc func)
     {
-        void** ptr_of_ptr = nullptr;
-        auto f = _makeFuncObj(func, ptr_of_ptr);
-        return Curried<decltype(f)>(move(f));
+        //auto f = _makeFuncObj(func, &func);
+        typedef handleMemberFunction<TFunc, TFunc> MF;
+        typedef MF::type type;
+        function<type> f = MF::transMF(func);
+        //return Curried<decltype(f)>(move(f));
+        return Curried<function<type>>(move(f));
     }
 
-    template<typename TFunctor, typename TFunc = decltype(&remove_pointer<TFunctor>::type::operator()), typename avoidRedefine = void>
+    template<typename TFunctor, typename TFunc = decltype(&remove_pointer<TFunctor>::type::operator()), typename = void, typename = void>
     auto Currying(TFunctor func)
     {
-        auto f = _makeFuncObj(&remove_pointer<TFunctor>::type::operator(), &func);
-        auto g = Curried<decltype(f)>(move(f));
+        typedef handleMemberFunction<TFunc, TFunctor> MF;
+        typedef MF::type type;
+        function<type> f = MF::transMF(func);
+        auto g = Curried<function<type>>(move(f));
         return g(func);
     }
 
@@ -181,8 +229,8 @@ namespace FPinCpp
     {
         typedef typename ExtractFuncType<TFunc>::type functionType; /* TFunc == function<functionType> */
         typedef tuple<TArgs...> thisTupleType;
-        typedef typename getTupleProtoFromFunc<functionType>::type CurriedTupleType;
-        enum { funcArgNum = ExtractFuncArgNum<functionType>::value, 
+        typedef typename ExtractFuncType<TFunc>::tupleType CurriedTupleType;
+        enum { funcArgNum = ExtractFuncType<TFunc>::argNum,
                tupleArgNum = sizeof...(TArgs), 
                tupleArgNumWithoutWildcard = ArgNumWithoutWildcard<TArgs...>::value };
         static_assert(tupleArgNum <= funcArgNum, "Curry, Too Many Args Passed"); 
@@ -234,7 +282,7 @@ namespace FPinCpp
             static_assert(tupleArgNumWithoutWildcard + sizeof...(TArgs_) <= funcArgNum, "Passed too many arguments!!");
             auto nt = buildTuple(tuple<>(), Idx<0>(), forward<TArgs_>(args)...);
             typedef decltype(nt) NewTupleType;
-            checkElemType(nt, make_index_sequence<tuple_size<NewTupleType>::value>(), (functionType*)(nullptr));
+            //checkElemType(nt, make_index_sequence<tuple_size<NewTupleType>::value>(), (functionType*)(nullptr));
             return handleReturn(nt, conditional<ArgNumWithoutWildcard<NewTupleType*>::value == funcArgNum, true_type, false_type>::type());
         }
     
