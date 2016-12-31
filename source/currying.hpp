@@ -1,4 +1,11 @@
-﻿#include<tuple>
+﻿/************************************/
+// auther: WangChu                  //
+// date: 2016                       //
+// license: MIT                     //
+// github: github.com/WangChuArc    //
+// e-mail: hoho71888675@126.com     //
+/************************************/
+#include<tuple>
 #include<vector>
 #include<utility>
 #include<functional>
