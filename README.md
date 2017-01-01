@@ -11,3 +11,5 @@
 16-12-31更新：16年最后一天的更新。。已经修复柯里化后的函数不能保存原来calling convention的问题了。现支持'cdecl、stdcall、fastcall、vectorcall'4种calling convention。
 
 TODO:增加延迟调用功能。e.g.:int foo(int, int, int);  auto f = currying(foo);  auto g = f(1, 2, 3);  int i = g();  形如上述。当然延迟调用功能会做成可选的，可以开启关闭的。
+
+TODO：柯里化后的函数不能给std::function赋值，需要重载'='运算符。
