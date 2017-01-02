@@ -161,38 +161,6 @@ namespace FPinCpp
     // todo:记得重新写注释
     /**********************************************************************************************************************************/
 
-    /*template<typename TMarker, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TMarker*)
-    {
-        typedef TR(type)(TClass*, TArgs...);
-        function<type> f = [func](TClass* pObj, TArgs ...args) { return (pObj->*func)(args...); };
-        return move(f);
-    }
-
-    template<typename TMarker, typename = typename enable_if<is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TMarker*)
-    {
-        typedef TR(type)(TClass*, TArgs...);
-        function<type> f = [func](TClass* pObj, TArgs ...args) { return (pObj->*func)(args...); };
-        return move(f);
-    }
-
-    template<typename SFINAE = void, typename TMarker, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...), TMarker*)
-    {
-        typedef TR(type)(TClass&&, TArgs...);
-        function<type> f = [func](TClass&& pObj, TArgs ...args) { return (pObj.*func)(args...); };
-        return move(f);
-    }
-
-    template<typename SFINAE = void, typename TMarker, typename = typename enable_if<!is_pointer<TPtr>::value>::type, typename TClass, typename TR, typename ...TArgs>
-    auto _makeFuncObj(TR(TClass::*func)(TArgs...) const, TMarker*)
-    {
-        typedef TR(type)(TClass&&, TArgs...);
-        function<type> f = [func](TClass&& pObj, TArgs ...args) { return (pObj.*func)(args...); };
-        return move(f);
-    }*/
-
     template<typename TFunc, typename = typename enable_if<is_function<typename remove_pointer<TFunc>::type>::value>::type>
     auto Currying(TFunc func)// -> Curried<function<typename NormalFunc<typename remove_pointer<TFunc>::type>::type>>
     {
