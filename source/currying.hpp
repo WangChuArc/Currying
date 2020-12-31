@@ -1,6 +1,6 @@
 ﻿/************************************/
-// auther: WangChu                  //
-// date: 2016                       //
+// auther: WangChuArc               //
+// date: 2020-12-31                 //
 // license: MIT                     //
 // github: github.com/WangChuArc    //
 // e-mail: hoho71888675@126.com     //
