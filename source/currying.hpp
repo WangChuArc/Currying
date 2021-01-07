@@ -1,10 +1,3 @@
-﻿/************************************/
-// auther: WangChuArc               //
-// date: 2020-12-31                 //
-// license: MIT                     //
-// github: github.com/WangChuArc    //
-// e-mail: hoho71888675@126.com     //
-/************************************/
 #ifndef _CURRYING_
 #define _CURRYING_
 
@@ -22,6 +15,12 @@ namespace details
 {
 	template<typename ...T>
 	struct alwaysFalse : std::false_type{};
+
+	template<typename ...T>
+	struct forbidden
+	{
+		static_assert(alwaysFalse<T...>::value, "forbidden to use.");
+	};
 
 	template<typename ...T>
 	struct tupleCatch
@@ -221,6 +220,8 @@ namespace details
 	{
 		using headType = staticInteger<std::size_t, THead>;
 		using tailType = indexSequence<TTail...>;
+
+		static const std::size_t size = sizeof...(TTail)+1;
 	};
 
 	template<typename T>
@@ -313,7 +314,10 @@ namespace details
 	void allValid() {}
 
 	template<typename T>
-	struct whetherLack : std::is_same<typename std::decay<T>::type, Wildcard>{};
+	struct whetherLack : std::false_type {};
+
+	template<>
+	struct whetherLack<Wildcard> : std::true_type {};
 
 	template<bool TLack, typename TLackList, std::size_t TIdx>
 	struct appendLack
@@ -399,7 +403,8 @@ namespace details
 	{
 		static const int idx = split<TLacks>::headType::value;
 		auto&& elem = head(_args);
-		auto saved = mergeElem(typename whetherLack<decltype(elem)>::type(), std::forward<TSaved>(_saved), std::forward<decltype(elem)>(elem), staticInteger<std::size_t, idx>());
+		using elemDecay = typename std::decay<decltype(elem)>::type;
+		auto saved = mergeElem(typename whetherLack<elemDecay>::type(), std::forward<TSaved>(_saved), std::forward<decltype(elem)>(elem), staticInteger<std::size_t, idx>());
 		auto args = tail(_args);
 		using lacks = typename split<TLacks>::tailType;
 
@@ -413,13 +418,13 @@ namespace details
 	}
 
 	template<typename T>
-	struct empty : std::false_type{};
+	struct empty : std::false_type {};
 
 	template<>
-	struct empty<indexSequence<>> : std::true_type{};
+	struct empty<indexSequence<>> : std::true_type {};
 
 	template<typename TR, typename ...TParams, std::size_t...TIndices, typename...TArgs>
-	auto invoke(std::function<TR(TParams...)>&& _f, indexSequence<TIndices...>, std::tuple<TArgs...>&& _args)->TR
+	auto invoke(std::function<TR(TParams...)>& _f, indexSequence<TIndices...>, std::tuple<TArgs...>&& _args)->TR
 	{
 		return _f(std::get<TIndices>(_args)...);
 	}
@@ -434,6 +439,94 @@ namespace details
 	struct functionProto<TR(TClass::*)(TParams...) const>
 	{
 		using type = std::function<TR(TParams...)>;
+	};
+
+	template<typename T, template<typename> class TF>
+	struct staticMap : forbidden<T>{};
+
+	template<typename ...TArgs, template<typename> class TFunc>
+	struct staticMap<std::tuple<TArgs...>, TFunc>
+	{
+		using type = std::tuple<typename TFunc<TArgs>::type...>;
+	};
+
+	template<typename T, typename U, template<typename, typename> class V>
+	struct staticReduce : forbidden<T>{};
+
+	template<typename THead, typename ...TTails, typename TInit, template<typename, typename> class TFunc>
+	struct staticReduce<std::tuple<THead, TTails...>, TInit, TFunc>
+	{
+		using acc = typename TFunc<THead, TInit>::type;
+		using type = typename staticReduce<std::tuple<TTails...>, acc, TFunc>::type;
+	};
+
+	template<typename TAcc, template<typename, typename> class TFunc>
+	struct staticReduce<std::tuple<>, TAcc, TFunc>
+	{
+		using type = TAcc;
+	};
+
+	template<typename TLeft, typename TRight, template<typename, typename> class TFunc>
+	struct staticZip
+	{
+		using left = split<TLeft>;
+		using right = split<TRight>;
+
+		using elem = typename TFunc<typename left::headType, typename right::type>::type;
+
+		using type = typename tupleCatch<std::tuple<elem>, typename staticZip<typename left::tailType, typename right::tailType, TFunc>::type>::type;
+	};
+
+	template<template<typename, typename> class TFunc>
+	struct staticZip<std::tuple<>, std::tuple<>, TFunc>
+	{
+		using type = std::tuple<>;
+	};
+
+	template<typename T>
+	auto uniformWildcard(T&& _arg)->typename forward_t<T>::type
+	{
+		return std::forward<T>(_arg);
+	}
+
+	auto uniformWildcard(Wildcard& _arg)->Wildcard
+	{
+		return Wildcard{};
+	}
+
+	template<typename T>
+	struct uniformWildcard_t
+	{
+		using type = T;
+	};
+
+	template<typename T>
+	struct uniformWildcard_t<T&>
+	{
+		using type = T&;
+	};
+
+	template<>
+	struct uniformWildcard_t<Wildcard&>
+	{
+		using type = Wildcard;
+	};
+
+	template<typename TLeft>
+	struct tupleApply
+	{
+		template<typename TTuple, std::size_t ...TIndices>
+		static auto impl(TTuple& _t, indexSequence<TIndices...>)->TLeft
+		{
+			return TLeft(std::get<TIndices>(_t)...);
+		}
+
+		template<typename ...TArgs>
+		static auto invoke(std::tuple<TArgs...>& _right)->TLeft
+		{
+			static const std::size_t size = sizeof...(TArgs);
+			return impl(_right, typename makeIndexSequence<size>::type());
+		}
 	};
 }
 
@@ -458,6 +551,10 @@ auto currying(const std::function<TR(TParams...)>& _f)->typename currying_t<TR, 
 template<typename TR, typename ...TParams>
 auto currying(std::function<TR(TParams...)>&& _f)->typename currying_t<TR, TParams...>::type;
 
+struct eRef{};
+struct eMove{};
+struct eCopy{};
+
 template<bool lazy, typename TR, typename TParams, typename TArgs, typename TLacks>
 class CurriedFunction
 {
@@ -475,63 +572,120 @@ public:
 	using funcType = typename details::extractParamsAsFunction<TParams, TR>::type;
 
 private:
-	CurriedFunction(funcType&& _f, TArgs&& _args) : m_func(_f), m_args(_args){}
+	CurriedFunction(funcType& _f, TArgs&& _args) : m_func(_f), m_args(_args){}
 
-	template<typename UEmpty, typename UArgs, typename ULackList>
-	struct invoke_t_impl
+	template<typename TF, typename TA>
+	struct conditionCopy_t : details::forbidden<TF> {};
+
+	template<typename ...TArgs>
+	struct conditionCopy_t<eRef, std::tuple<TArgs...>>
 	{
-		using type = CurriedFunction<lazy, TR, TParams, UArgs, ULackList>;
+		using type = std::tuple<typename details::uniformWildcard_t<TArgs&>::type...>;
 	};
 
-	template<typename UArgs, typename ULackList>
-	struct invoke_t_impl<std::true_type, UArgs, ULackList>
+	template<typename ...TArgs>
+	struct conditionCopy_t<eCopy, std::tuple<TArgs...>>
+	{
+		using type = std::tuple<TArgs...>;
+	};
+
+	template<typename ...TArgs>
+	struct conditionCopy_t<eMove, std::tuple<TArgs...>>
+	{
+		using type = std::tuple<TArgs...>;
+	};
+
+	template<typename UEmpty, typename wArgs, typename ULackList>
+	struct invoke_t_impl
+	{
+		using type = CurriedFunction<lazy, TR, TParams, wArgs, ULackList>;
+	};
+
+	template<typename xArgs, typename ULackList>
+	struct invoke_t_impl<std::true_type, xArgs, ULackList>
 	{
 		using type = TR;
 	};
 
-	template<typename ...UArgs>
+	template<typename TConFlag, typename ...vArgs>
 	struct invoke_t
 	{
-		//using args = std::tuple<typename details::forward_t<UArgs>::type...>;
-		using args = std::tuple<UArgs...>;
-		using merged = typename details::merge_t<TArgs, args, TLacks>::type;
+		using args = std::tuple<vArgs...>;
+		using saved = typename conditionCopy_t<TConFlag, TArgs>::type;
+		using merged = typename details::merge_t<saved, args, TLacks>::type;
 		using lackList = typename details::reduceToGetLackList<merged>::type;
 		using type = typename invoke_t_impl<typename details::empty<lackList>::type, merged, lackList>::type;
 	};
 
-	template<typename UArgs, typename ULacks>
-	auto invoke(std::false_type, funcType&& _f, UArgs&& _args, ULacks)->CurriedFunction<lazy, TR, TParams, UArgs, ULacks>
+	template<typename TArgs, typename ULacks>
+	auto invoke_impl(std::false_type, funcType& _f, TArgs&& _args, ULacks)->CurriedFunction<lazy, TR, TParams, TArgs, ULacks>
 	{
-		return CurriedFunction<lazy, TR, TParams, UArgs, ULacks>{ std::move(_f), std::move(_args) };
+		return CurriedFunction<lazy, TR, TParams, TArgs, ULacks>(_f, std::move(_args));
 	}
 
-	template<typename UArgs, typename ULacks>
-	auto invoke(std::true_type, funcType&& _f, UArgs&& _args, ULacks)->TR
+	template<typename TArgs, typename ULacks>
+	auto invoke_impl(std::true_type, funcType& _f, TArgs&& _args, ULacks)->TR
 	{
-		static const int size = std::tuple_size<UArgs>::value;
+		static const int size = std::tuple_size<TArgs>::value;
 		using indices = typename details::makeIndexSequence<size>::type;
 
-		return details::invoke(std::move(_f), indices(), std::move(_args));
+		return details::invoke(_f, indices(), std::move(_args));
 	}
 
 	template<typename ULacks>
-	auto invoke(std::true_type, funcType&& _f, std::tuple<>&&, ULacks)->TR
+	auto invoke_impl (std::true_type, funcType& _f, std::tuple<>&&, ULacks)->TR
 	{
 		return _f();
 	}
 
-public:
-	template<typename ...U>
-	auto operator()(U&&... _args)->typename invoke_t<U...>::type
+	template<typename ...TArgs>
+	auto conditionCopy(eRef, std::tuple<TArgs...>& _args)->typename conditionCopy_t<eRef, std::tuple<TArgs...>>::type
 	{
-		//auto args = std::forward_as_tuple(std::forward<U>(_args)...);
-		auto args = std::tuple<U...>(std::forward<U>(_args)...);
-		auto merged = details::merge(std::move(m_args), std::move(args), TLacks());
+		using type = typename conditionCopy_t<eRef, std::tuple<TArgs...>>::type;
+		auto rst = details::tupleApply<type>::invoke(_args);
+
+		return rst;
+	}
+
+	template<typename ...TArgs>
+	auto conditionCopy(eCopy, std::tuple<TArgs...>& _args)->typename conditionCopy_t<eCopy, std::tuple<TArgs...>>::type
+	{
+		using type = typename conditionCopy_t<eCopy, std::tuple<TArgs...>>::type;
+		type rst = _args;
+
+		return rst;
+	}
+
+	template<typename ...TArgs>
+	auto conditionCopy(eMove, std::tuple<TArgs...>& _args)->typename conditionCopy_t<eMove, std::tuple<TArgs...>>::type
+	{
+		using type = typename conditionCopy_t<eMove, std::tuple<TArgs...>>::type;
+		type rst = std::move(_args);
+
+		return rst;
+	}
+
+
+public:
+	template<typename TConFlag = eRef, typename ...U>
+	auto invoke(U&&... _args)->typename invoke_t<TConFlag, typename details::uniformWildcard_t<U>::type...>::type
+	{
+		auto args = std::tuple<typename details::uniformWildcard_t<U>::type...>(details::uniformWildcard(std::forward<U>(_args))...);
+
+		auto saved = conditionCopy(TConFlag(), m_args);
+
+		auto merged = details::merge(std::move(saved), std::move(args), TLacks());
 
 		using mergedType = decltype(merged);
 		using lackList = typename details::reduceToGetLackList<mergedType>::type;
 
-		return invoke(typename details::empty<lackList>::type(), std::move(m_func), std::move(merged), lackList());
+		return invoke_impl(typename details::empty<lackList>::type(), m_func, std::move(merged), lackList());
+	}
+
+	template<typename ...U>
+	auto operator()(U&&... _args)->typename invoke_t<eRef, typename details::uniformWildcard_t<U>::type...>::type
+	{
+		return invoke<eRef>(std::forward<U>(_args)...);
 	}
 
 private:
@@ -622,5 +776,6 @@ auto currying(TFunctor&& _f)->typename currying_t<typename details::functionProt
 
 	return rst;
 }
+
 
 #endif // _CURRYING_
